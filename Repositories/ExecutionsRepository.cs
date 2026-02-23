@@ -1,15 +1,18 @@
-﻿using Api_IA.Interfaces;
-using Api_IA.Models.Items;
+﻿using Api_IA.Models.Items;
 using ApiDrones.Models;
-// using ApiDrones.Repositories.Interface;
+using ApiDrones.Repositories.Interface;
 using Microsoft.Azure.CognitiveServices.Vision.CustomVision.Prediction.Models;
 using Microsoft.EntityFrameworkCore;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace ApiDrones.Repositories
 {
     public class ExecutionsRepository : IExecutionsRepository
     {
         private readonly DbContextConfi _dbContextConfi;
+
         public ExecutionsRepository(DbContextConfi dbContextConfi)
         {
             _dbContextConfi = dbContextConfi;
@@ -26,42 +29,46 @@ namespace ApiDrones.Repositories
                 Processed = 0
             };
 
-            int LastInsertedId = 0;
             try
             {
                 await _dbContextConfi.Executions.AddAsync(execution);
                 await _dbContextConfi.SaveChangesAsync();
-                LastInsertedId = execution.Execution_id;
+                return execution.Execution_id;
             }
             catch (Exception ex)
             {
                 Console.WriteLine("error en AsyncTestPostmanInsertLogBD: " + ex);
+                return 0;
             }
-            return LastInsertedId;
         }
-        public async Task<int> AsyncTestPostmanInsertImageBd(int last_row_id,string image_name,string image_dir)
+        public async Task<int> AsyncTestPostmanInsertImageBd(int last_row_id, string image_name, string image_dir)
         {
-            Images imagen = new Images() { 
+            Images imagen = new Images()
+            {
                 Image_storage = image_dir,
                 Image_name = image_name,
                 Execution_id = last_row_id,
                 Processed = 0,
                 Image_url = $"{Environment.GetEnvironmentVariable("BLOB_URL_BASE")}{image_dir}/{image_name}"
             };
-            int Last_insert_id = 0;
+
             try
             {
                 await _dbContextConfi.Images.AddAsync(imagen);
                 await _dbContextConfi.SaveChangesAsync();
-                Last_insert_id = imagen.Image_id;
+                return imagen.Image_id;
             }
             catch (Exception ex)
             {
                 Console.WriteLine("error en AsyncTestPostmanInsertImageBd: " + ex);
+                return 0;
             }
-            return Last_insert_id;
         }
-        public async Task CustomVisionAsyncTestInsertPredictionsToDb(ImagePrediction predictions, string image_name, int execution_id, string image_url)
+        public async Task CustomVisionAsyncTestInsertPredictionsToDb(
+            ImagePrediction predictions,
+            string image_name,
+            int execution_id,
+            string image_url)
         {
             ProcessedImages2 processedImages2 = new ProcessedImages2()
             {
@@ -74,7 +81,10 @@ namespace ApiDrones.Repositories
             {
                 await _dbContextConfi.ProcessedImages2.AddAsync(processedImages2);
                 await _dbContextConfi.SaveChangesAsync();
+
                 int Last_insert_id = processedImages2.Processed_image_id;
+
+                var list = new List<Predictions2>();
 
                 foreach (var prediction in predictions.Predictions)
                 {
@@ -83,7 +93,7 @@ namespace ApiDrones.Repositories
                         Predictions2 predictions2 = new Predictions2()
                         {
                             Tag = prediction.TagName,
-                            Probability = prediction.Probability*100,
+                            Probability = prediction.Probability * 100,
                             Left_x = prediction.BoundingBox.Left,
                             Top_y = prediction.BoundingBox.Top,
                             Height_y = prediction.BoundingBox.Height,
@@ -91,9 +101,14 @@ namespace ApiDrones.Repositories
                             Processed_image_id = Last_insert_id,
                             Execution_id = execution_id
                         };
-                        await _dbContextConfi.Predictions2.AddAsync(predictions2);
-                        await _dbContextConfi.SaveChangesAsync();
+
+                        list.Add(predictions2);
                     }
+                }
+                if (list.Count > 0)
+                {
+                    await _dbContextConfi.Predictions2.AddRangeAsync(list);
+                    await _dbContextConfi.SaveChangesAsync();
                 }
             }
             catch (Exception ex)
@@ -105,17 +120,8 @@ namespace ApiDrones.Repositories
         {
             try
             {
-                
-                Images image = await _dbContextConfi.Images.FirstOrDefaultAsync(img => img.Image_id == image_id);
-
-                if (image != null)
-                {
-
-                    await _dbContextConfi.Database.ExecuteSqlInterpolatedAsync($"UPDATE Images SET prediction_ready = 1, processed = 1 WHERE Image_id = {image_id}");
-                    //image.Prediction_ready = true;
-                    //image.Processed = 1;
-                    //await _dbContextConfi.SaveChangesAsync();
-                }
+                await _dbContextConfi.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE Images SET prediction_ready = 1, processed = 1 WHERE Image_id = {image_id}");
             }
             catch (Exception ex)
             {
@@ -123,25 +129,21 @@ namespace ApiDrones.Repositories
                 throw;
             }
         }
-
         public async Task<List<ResponseItems>> GetResponseItems()
         {
-            List<ResponseItems> responseItems = null;
             try
             {
-                responseItems = await _dbContextConfi
-                .Set<ResponseItems>()
-                .FromSqlInterpolated($"EXEC dbo.EdzonVista")
-                .ToListAsync();
-                Console.WriteLine($"Consulta completada. Elementos devueltos: {responseItems.Count}");
-
+                return await _dbContextConfi
+                    .Set<ResponseItems>()
+                    .FromSqlInterpolated($"EXEC dbo.EdzonVista")
+                    .AsNoTracking()
+                    .ToListAsync();
             }
             catch (Exception ex)
             {
                 Console.WriteLine("error en GetResponseItems: FromSqlInterpolated" + ex);
                 throw;
             }
-            return responseItems;
         }
     }
 }

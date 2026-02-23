@@ -1,73 +1,41 @@
-using Microsoft.Azure.CognitiveServices.Vision.CustomVision.Prediction;
 using System;
-using System.Threading.Tasks;
-using System.Net.Security;
-using System.Drawing;
-using System.Text.Json;
+using System.IO;
 using System.Net.Http;
-using System.Text;
+using System.Threading.Tasks;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
 
 namespace ApiDrones.infrastructure
 {
     public class ApiKraken
     {
         private static readonly HttpClient _httpClient = new HttpClient();
-        public async Task<string> AsyncResizeImage(string url, int heigth) {
+
+        public async Task<string> AsyncResizeImage(string url, int heigth)
+        {
             try
             {
-                string krakenUrl = "https://api.kraken.io/v1/url";
-                string ApiKey = Environment.GetEnvironmentVariable("KRAKEN_APIKEY");
-                string ApiPrivate = Environment.GetEnvironmentVariable("KRAKEN_SECRET");
+                var bytes = await _httpClient.GetByteArrayAsync(url);
 
-                var payload = new
-                {
-                    auth = new
-                    {
-                        api_key = Environment.GetEnvironmentVariable("KRAKEN_APIKEY"),
-                        api_secret = Environment.GetEnvironmentVariable("KRAKEN_SECRET")
-                    },
-                    url = url,
-                    wait = true,
-                    resize = new
-                    {
-                        height = heigth,
-                        strategy = "portrait"
-                    }
-                };
-                string payloadJson = JsonSerializer.Serialize(payload);
+                using var image = Image.Load(bytes);
 
-                var response = await _httpClient.PostAsync(krakenUrl, new StringContent(payloadJson, Encoding.UTF8, "application/json"));
+                image.Mutate(x => x.Resize(0, heigth));
 
+                using var ms = new MemoryStream();
+                await image.SaveAsJpegAsync(ms);
 
-                if (response.IsSuccessStatusCode)
-                {
-                    // Leer el contenido de la respuesta
-                    string responseContent = await response.Content.ReadAsStringAsync();
+                byte[] newBytes = ms.ToArray();
 
-                    // Parsear la respuesta JSON
-                    var jsonResponse = JsonSerializer.Deserialize<JsonElement>(responseContent);
+                var content = new ByteArrayContent(newBytes);
 
-                    // Obtener la URL de la imagen optimizada
-                    if (jsonResponse.TryGetProperty("kraked_url", out var krakedUrl))
-                    {
-                        return krakedUrl.GetString();
-                    }
-                }
-                else
-                {
-                    Console.WriteLine($"Error: {response.StatusCode}");
-                }
+                await _httpClient.PutAsync(url, content);
+
+                return url;
             }
-            catch (HttpRequestException e)
+            catch
             {
-                Console.WriteLine($"Error en la solicitud HTTP: {e.Message}");
-                
+                return url;
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error inesperado: {ex.Message}");
-            }
-            return url;
         }
     }
 }

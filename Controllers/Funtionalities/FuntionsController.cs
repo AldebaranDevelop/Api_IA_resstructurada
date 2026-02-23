@@ -1,14 +1,18 @@
-
-
 using Api_IA.Interfaces;
-using Api_IA.Models.Images;
-using Api_IA.Models.Items;
 using ApiDrones.infrastructure;
+using ApiDrones.Models;
+using ApiDrones.Repositories.Interface;
+using ApiDrones.Services.Interface;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json;
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace ApiDrones.Controllers;
 public class Function_App
@@ -25,64 +29,64 @@ public class Function_App
     }
 
     [FunctionName("customVisionPrediction")]
-    public async Task<IActionResult> customVisionPrediction([HttpTrigger(AuthorizationLevel.Anonymous,"post", Route = null)] HttpRequest req)
+    public async Task<IActionResult> CustomVisionPrediction(
+    [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
     {
-        string data = await new StreamReader(req.Body).ReadToEndAsync();
-            
-        if (string.IsNullOrEmpty(data))
-            return new BadRequestObjectResult("Missing Body");
-
         try
         {
-            RequestBody requestBody = JsonConvert.DeserializeObject<RequestBody>(data);
+            using var reader = new StreamReader(req.Body);
+            var body = await reader.ReadToEndAsync();
 
-            List<RequestImages> imageArray = requestBody?.Images;
+            if (string.IsNullOrWhiteSpace(body))
+                return new BadRequestObjectResult("Missing body");
 
-            if(imageArray == null)
-                return new BadRequestObjectResult("Missing image array from body");
+            var request = JsonConvert.DeserializeObject<RequestBody>(body);
 
-            List<bool> isCorrect = await _dronImg.CustomVisionAsyncTestMain(imageArray);
+            if (request?.Images == null || request.Images.Count == 0)
+                return new BadRequestObjectResult("Missing image array");
 
-           if (isCorrect != null && isCorrect.Any())
+            var results = await _dronImg.CustomVisionAsyncTestMain(request.Images);
+
+            if (results?.Any() != true)
+                return new BadRequestObjectResult("No predictions");
+
+            var items = await _ExecutionsRepository.GetResponseItems();
+
+            var foundProducts = items.Select(x => x.Name).ToList();
+
+            var response = new
             {
-                List<ResponseItems> Response = await _ExecutionsRepository.GetResponseItems();
-                List<string> found_products = new List<string>();
-                foreach (var item in Response) {
-                    found_products.Add(item.Name);
-                }
-                var jsonObject = new
-                {
-                    status = "OK",
-                    found_products = found_products
-                };
-                var jsonResponse = JsonConvert.SerializeObject(jsonObject);
+                status = "OK",
+                found_products = foundProducts
+            };
 
-                Console.WriteLine("Llegamos a la parte del fuego y dispara");
-                var FireAndForget = new ApiCustomVision();
-                await FireAndForget.FireAndForgetHttpCallAsync();
-                Console.WriteLine("Salimos de la parte del fuego y dispara");
-                return new OkObjectResult(new { jsonObject, status_code = 200, mimetype = "application/json"});
-            }
+            _ = Task.Run(() =>
+            {
+                var fire = new ApiCustomVision();
+                return fire.FireAndForgetHttpCallAsync();
+            });
 
+            return new OkObjectResult(response);
         }
-        catch (Exception )
+        catch (JsonException)
         {
-            return new BadRequestObjectResult(JsonConvert.SerializeObject(new { status = "Invalid JSON", status_code = 400, mimetype = "application/json" }));
-                
+            return new BadRequestObjectResult("Invalid JSON");
         }
-        return new BadRequestObjectResult(JsonConvert.SerializeObject(new { status="OK", status_code = 400, mimetype = "application/json"}));
-
+        catch (Exception)
+        {
+            return new StatusCodeResult(400);
+        }
     }
 
     [FunctionName("StoreInfo")]
     public async Task<IActionResult> StoreInfo(
-        [HttpTrigger(AuthorizationLevel.Anonymous,"get", Route = null)] HttpRequest req)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = null)] HttpRequest req)
     {
         string storeIdStr = req.Query["store_id"];
         string productIdStr = req.Query["aisle_id"];
         string operatorIdStr = req.Query["operator_id"];
 
-        if (string.IsNullOrEmpty(storeIdStr) ) return new BadRequestObjectResult("Missing parameter 'store_id'");
+        if (string.IsNullOrEmpty(storeIdStr)) return new BadRequestObjectResult("Missing parameter 'store_id'");
 
         return await _dronImg.GetStore(_configuration, storeIdStr, productIdStr, operatorIdStr);
     }

@@ -1,7 +1,13 @@
 ﻿using Api_IA.Models.Items;
+using ApiDrones.Models;
 using Microsoft.Azure.CognitiveServices.Vision.CustomVision.Prediction.Models;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
-namespace Api_IA.Interfaces
+namespace ApiDrones.Repositories.Interface
 {
     public interface IExecutionsRepository
     {
