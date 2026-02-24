@@ -126,7 +126,7 @@ namespace ApiDrones.Services
                 int blob_status =
                     await AsyncTestHttpUploadToBucket(image, url, content_type);
 
-                if (blob_status != 201)
+                if (blob_status < 200 || blob_status >= 300)
                     return false;
 
                 int insertedImageId;
