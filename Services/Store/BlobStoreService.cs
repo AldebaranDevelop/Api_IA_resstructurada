@@ -1,10 +1,7 @@
-﻿using Azure.Storage.Blobs.Models;
-using Azure.Storage.Blobs;
+﻿using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace ApiDrones.infrastructure
@@ -14,42 +11,44 @@ namespace ApiDrones.infrastructure
         private readonly string blobStorageConnectionString;
         private readonly string blobContainerName;
 
+        private readonly BlobContainerClient _blobContainerClient;
+
         public BlobStorageService(string connectionString, string containerName)
         {
             blobStorageConnectionString = connectionString;
             blobContainerName = containerName;
+
+            var blobServiceClient = new BlobServiceClient(blobStorageConnectionString);
+
+            _blobContainerClient =
+                blobServiceClient.GetBlobContainerClient(blobContainerName);
+
+            _blobContainerClient.CreateIfNotExists(PublicAccessType.None);
         }
 
-        public async Task<int> UploadToBlobAsync(Stream imageStream, string blobName, string contentType)
+        public async Task<int> UploadToBlobAsync(
+            Stream imageStream,
+            string blobName,
+            string contentType)
         {
             try
             {
-                // Create a BlobServiceClient
-                var blobServiceClient = new BlobServiceClient(blobStorageConnectionString);
-                var blobContainerClient = blobServiceClient.GetBlobContainerClient(blobContainerName);
+                var blobClient = _blobContainerClient.GetBlobClient(blobName);
 
-                // Ensure the container exists
-                await blobContainerClient.CreateIfNotExistsAsync(PublicAccessType.None);
-
-                // Get the BlobClient for the specified blob
-                var blobClient = blobContainerClient.GetBlobClient(blobName);
-
-                // Set headers
-                var blobHttpHeaders = new BlobHttpHeaders { ContentType = contentType };
-
-                // Upload the file
-                await blobClient.UploadAsync(imageStream, new BlobUploadOptions
+                var blobHttpHeaders = new BlobHttpHeaders
                 {
-                    HttpHeaders = blobHttpHeaders
-                });
+                    ContentType = contentType
+                };
 
-                // Return a success status code (200)
+                await blobClient.UploadAsync(
+                    imageStream,
+                    new BlobUploadOptions { HttpHeaders = blobHttpHeaders });
+
                 return 200;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error uploading blob: {ex.Message}");
-                // Return a failure status code (500)
                 return 500;
             }
         }
